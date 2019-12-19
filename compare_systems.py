@@ -1,5 +1,5 @@
 import numpy as np
-from pqbase import AC, HDy , EDy, CvMy, HDX, EDX
+from qbase import AC, CC, HDy , EDy, CvMy, HDX, EDX
 
 import os, glob
 import pandas as pd
@@ -12,6 +12,7 @@ from sklearn.ensemble import RandomForestClassifier
 
 from utils import create_bags_with_multiple_prevalence, binary_kl_divergence, absolute_error
 from utils import g_mean, normalize
+from sklearn.metrics import zero_one_loss, brier_score_loss    #NUEVO
 
 import warnings
 from sklearn.exceptions import DataConversionWarning
@@ -20,6 +21,11 @@ from pandas.core.common import SettingWithCopyWarning
 warnings.simplefilter("ignore", DataConversionWarning)
 warnings.simplefilter("ignore", SettingWithCopyWarning)
 
+
+def indices_to_one_hot(data, n_classes):   #NUEVO
+    """Convert an iterable of indices to one-hot encoded labels."""
+    targets = np.array(data).reshape(-1)
+    return np.eye(n_classes)[targets]
 
 
 def main():
@@ -39,12 +45,14 @@ def main():
     datasets_dir = "./datasets"
     dataset_files = [file for file in glob.glob(os.path.join(datasets_dir, "*.csv"))]
 
+    dataset_files = ["./datasets/iris.3.csv"]
+
     dataset_names = [os.path.split(name)[-1][:-4] for name in dataset_files]
     print("There are a total of {} datasets.".format(len(dataset_names)))
 
-    filename_out = "results_" + str(num_reps) + "x" + str(num_bags)
+    filename_out = "results_nov19_" + str(num_reps) + "x" + str(num_bags)
 
-    methods = ['AC', 'CvMy', 'EDX', 'EDy', 'HDX', 'HDy']
+    methods = ['AC', 'CC', 'CvMy', 'EDX', 'EDy', 'HDX', 'HDy']
     total_errors_df = []
     for rep in range(num_reps):
         for dname, dfile in zip(dataset_names, dataset_files):
@@ -57,7 +65,12 @@ def main():
     total_errors_df.to_csv(filename_out+  "_all.csv", index=None)
 
     means_df = total_errors_df.groupby(['dataset', 'method'])[['mae']].agg(["mean"]).unstack().round(5)
-    means_df.to_csv(filename_out+ "_means.csv", header=methods)
+    means_df.to_csv(filename_out+ "_means_mae.csv", header=methods)
+    means_df2 = total_errors_df.groupby(['dataset', 'method'])[['error_clf']].agg(["mean"]).unstack().round(5)
+    means_df2.to_csv(filename_out+ "_means_error.csv", header=methods)
+    means_df3 = total_errors_df.groupby(['dataset', 'method'])[['brier_clf']].agg(["mean"]).unstack().round(5)
+    means_df3.to_csv(filename_out+ "_means_brier.csv", header=methods)
+
     print(means_df)
 
 
@@ -89,7 +102,7 @@ def select_estimator(X_train, y_train, estimator_grid, master_seed, current_seed
 def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
                        master_seed, current_seed, num_bags, num_folds):
 
-    columns = ['dataset', 'method', 'truth', 'predictions', 'mae']
+    columns = ['dataset', 'method', 'truth', 'predictions', 'mae', "error_clf", "brier_clf" ]
     errors_df = pd.DataFrame(columns=columns)
 
     X_train, X_test, y_train, y_test = load_data(dfile, current_seed)
@@ -99,6 +112,9 @@ def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
 
     ac = AC(estimator=clf)
     ac.fit(X_train, y_train, cv=folds)
+
+    cc = CC(estimator=clf, sys_trained=ac)
+    cc.fit(X_train, y_train, cv=folds)
 
     cvmy = CvMy(estimator=clf, sys_trained=ac)
     cvmy.fit(X_train, y_train, cv=folds)
@@ -117,9 +133,17 @@ def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
 
     for n_bag, (X_test_, y_test_, prev_true) in enumerate(
                create_bags_with_multiple_prevalence(X_test, y_test, num_bags, current_seed)):
+
+        pred_test_ = clf.predict_proba(X_test_)  #prediccion de clasificación  #NUEVO
+        # Error
+        error_clf = zero_one_loss(np.array(y_test_), np.argmax(pred_test_,axis=1))  # --> GUARDAR
+        # Brier loss
+        brier_clf = brier_score_loss(indices_to_one_hot(y_test_, 2)[:, 0], pred_test_[:, 0])  # --> GUARDAR
+
         prev_true = prev_true[1]
         prev_preds = [
             ac.predict(X_test_)[1],
+            cc.predict(X_test_)[1],
             cvmy.predict(X_test_)[1],
             edx.predict(X_test_)[1],
             edy.predict(X_test_)[1],
@@ -129,7 +153,7 @@ def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
         for n_method, (method, prev_pred) in enumerate(zip(methods, prev_preds)):
             mae = absolute_error(prev_true, prev_pred)
             errors_df = errors_df.append(
-                pd.DataFrame([[dname, method, prev_true, prev_pred, mae]], columns=columns))
+                pd.DataFrame([[dname, method, prev_true, prev_pred, mae, error_clf, brier_clf]], columns=columns))
 
     # uncomment if you want to save intermediate results
     # errors_df.to_csv(filename_out + "_bak.csv", mode='a', index=None)

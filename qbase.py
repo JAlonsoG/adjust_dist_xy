@@ -44,6 +44,34 @@ class BaseQ (six.with_metaclass(ABCMeta, BaseEstimator)):
             raise ValueError("Invalid value for cv param")
         return self
 
+class CC(BaseQ):  #Nuevo 1/11/2019
+    def __init__(self, estimator , sys_trained = None):
+        super(CC, self).__init__(estimator)
+
+        if sys_trained!=None:
+            if isinstance(sys_trained, BaseQ):
+                self.estimator_ = sys_trained.estimator_
+                self.predictions_train_ = sys_trained.predictions_train_
+                self.classes_ = sys_trained.classes_
+            else:
+                raise  TypeError("Invalid type for sys_trained param")
+
+
+    def fit(self, X, y, cv=5):
+        super().fit(X, y, cv)
+
+    def predict(self, X):
+        predictions = self.estimator_.predict(X)
+        freq = np.bincount(predictions, minlength=2)
+        relative_freq = freq / float(np.sum(freq))
+
+        probabilities = np.clip(relative_freq[1], 0, 1)
+        probabilities = np.array([1 - probabilities, probabilities])
+        if np.sum(probabilities) == 0:
+            return probabilities
+        return probabilities / np.sum(probabilities)
+
+
 
 class AC(BaseQ):
 
@@ -77,7 +105,6 @@ class AC(BaseQ):
         relative_freq = freq / float(np.sum(freq))
         adjusted = (relative_freq - self.fpr_) / float(self.tpr_ - self.fpr_)
         adjusted = np.nan_to_num(adjusted)
-
         probabilities = np.clip(adjusted[1], 0, 1)
         probabilities = np.array([1 - probabilities, probabilities])
         if np.sum(probabilities) == 0:
@@ -109,16 +136,25 @@ class HDy(BaseQ):
 
         n_classes = len(self.classes_)
         n_clfs = n_classes  # OvA
-        self.train_dist_ = np.zeros((n_classes, self.b, n_clfs))
 
         preds = self.predictions_train_
         pos_preds = preds[y == 1]
         neg_preds = preds[y == 0]
-        pos_pdf, _ = np.histogram(pos_preds, bins=self.b, range=(0., 1.))
-        neg_pdf, _ = np.histogram(neg_preds, bins=self.b, range=(0., 1.))
-        self.train_dist_ = np.vstack(
-            [(neg_pdf / float(sum(y == 0)))[None, :, None], (pos_pdf / float(sum(y == 1)))[None, :, None]])
-        self.train_dist_ = np.squeeze(self.train_dist_)
+        
+        # NEW
+        self.train_dist_ = np.zeros((self.b, n_classes))
+        self.train_dist_[:, 0], _ = np.histogram(neg_preds, bins=self.b, range=(0., 1.))
+        self.train_dist_[:, 1], _ = np.histogram(pos_preds, bins=self.b, range=(0., 1.))
+        self.train_dist_[:, 0] = self.train_dist_[:, 0] / float(np.sum(y == 0))
+        self.train_dist_[:, 1] = self.train_dist_[:, 1] / float(np.sum(y == 1))
+        
+        # OLD
+        # self.train_dist_ = np.zeros((n_classes, self.b, n_clfs))
+        # pos_pdf, _ = np.histogram(pos_preds, bins=self.b, range=(0., 1.))
+        # neg_pdf, _ = np.histogram(neg_preds, bins=self.b, range=(0., 1.))
+        # self.train_dist_ = np.vstack(
+        #    [(neg_pdf / float(sum(y == 0)))[None, :, None], (pos_pdf / float(sum(y == 1)))[None, :, None]])
+        # self.train_dist_ = np.squeeze(self.train_dist_)
 
 
     def predict(self, X):
@@ -127,9 +163,17 @@ class HDy(BaseQ):
 
         n_classes = len(self.classes_)
         preds = self.estimator_.predict_proba(X)[:, 1]
-        pdf, _ = np.histogram(preds, self.b, range=(0, 1))
-        test_dist = pdf / float(X.shape[0])
-        test_dist = np.expand_dims(test_dist, -1)
+        
+        # NEW
+        test_dist = np.zeros((self.b, 1))
+        test_dist[:, 0], _ = np.histogram(preds, self.b, range=(0, 1))
+        test_dist = test_dist / float(X.shape[0])
+        
+        # OLD
+        # pdf, _ = np.histogram(preds, self.b, range=(0, 1))
+        # test_dist = pdf / float(X.shape[0])
+        # test_dist = np.expand_dims(test_dist, -1)
+        
         return solve_hd(self.train_dist_, test_dist, n_classes)
 
 
@@ -360,18 +404,30 @@ class HDX(six.with_metaclass(ABCMeta, BaseEstimator)):
 
     def fit(self, X, y):
         self.classes_ = np.unique(y)
-        ranges = [(a.min(), a.max()) for a in X.T]
-        neg_pdf = np.zeros((self.b, X.shape[1]))
-        pos_pdf = np.zeros((self.b, X.shape[1]))
-        for att in range(X.shape[1]):
-            neg_pdf[:, att] = np.histogram(X[y == 0, att], bins=self.b, range=ranges[att])[0]
-            pos_pdf[:, att] = np.histogram(X[y == 1, att], bins=self.b, range=ranges[att])[0]
-        neg_pdf = neg_pdf / np.sum(y == 0)
-        neg_pdf = neg_pdf.reshape(1, -1)
-        pos_pdf = pos_pdf / np.sum(y == 1)
-        pos_pdf = pos_pdf.reshape(1, -1)
-        self.train_dist_ = np.vstack((neg_pdf, pos_pdf))
-        self.att_ranges = ranges
+                
+        # NEW
+        self.att_ranges = [(a.min(), a.max()) for a in X.T]
+        self.train_dist_ = np.zeros((self.b * X.shape[1], 2))
+        for n_cls, cls in enumerate(self.classes_):
+            # compute pdf
+            for att in range(X.shape[1]):
+                self.train_dist_[att * self.b:(att + 1) * self.b, n_cls] = \
+                    np.histogram(X[y == cls, att], bins=self.b, range=self.att_ranges[att])[0]
+            self.train_dist_[:, n_cls] = self.train_dist_[:, n_cls] / np.sum(y == cls)
+                
+        # OLD
+        # ranges = [(a.min(), a.max()) for a in X.T]
+        # neg_pdf = np.zeros((self.b, X.shape[1]))
+        # pos_pdf = np.zeros((self.b, X.shape[1]))
+        # for att in range(X.shape[1]):
+        #     neg_pdf[:, att] = np.histogram(X[y == 0, att], bins=self.b, range=ranges[att])[0]
+        #    pos_pdf[:, att] = np.histogram(X[y == 1, att], bins=self.b, range=ranges[att])[0]
+        # neg_pdf = neg_pdf / np.sum(y == 0)
+        # neg_pdf = neg_pdf.reshape(1, -1)
+        # pos_pdf = pos_pdf / np.sum(y == 1)
+        # pos_pdf = pos_pdf.reshape(1, -1)
+        # self.train_dist_ = np.vstack((neg_pdf, pos_pdf))
+        # self.att_ranges = ranges
 
 
     def predict(self, X, method='cc'):
@@ -379,11 +435,20 @@ class HDX(six.with_metaclass(ABCMeta, BaseEstimator)):
             raise ValueError("If HDy predictions are in order, the quantifier must be trained with the parameter `b`")
 
         n_classes = len(self.classes_)
-        pdf = np.zeros((self.b, X.shape[1]))
+        
+        # NEW
+        test_dist = np.zeros((self.b * X.shape[1], 1))
+        # compute pdf
         for att in range(X.shape[1]):
-            pdf[:, att] = np.histogram(X[:, att], bins=self.b, range=self.att_ranges[att])[0]
-        pdf = pdf / len(X)
-        test_dist = pdf.reshape(-1, 1)
+            test_dist[att * self.b:(att + 1) * self.b, 0] = \
+                np.histogram(X[:, att], bins=self.b, range=self.att_ranges[att])[0]
+        test_dist = test_dist / len(X)
+                
+        # OLD
+        # pdf = np.zeros((self.b, X.shape[1]))
+        # for att in range(X.shape[1]):
+        #     pdf[:, att] = np.histogram(X[:, att], bins=self.b, range=self.att_ranges[att])[0]
+        # pdf = pdf / len(X)
+        #test_dist = pdf.reshape(-1, 1)
+        
         return solve_hd(self.train_dist_, test_dist, n_classes, solver="ECOS")
-
-

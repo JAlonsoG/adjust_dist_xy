@@ -65,112 +65,21 @@ invphi = (math.sqrt(5) - 1) / 2  # 1/phi
 invphi2 = (3 - math.sqrt(5)) / 2  # 1/phi^2
 
 
-def gss(f, tol=1e-5):
-    """
-    Golden section search.
+############
+# Functions for solving HD-based methods
+############
+def solve_hd(train_distrib, test_distrib, n_classes, solver='ECOS'):
+    prevalences = cvxpy.Variable(n_classes)
+    s = cvxpy.multiply(np.squeeze(test_distrib), train_distrib * prevalences)
+    objective = cvxpy.Minimize(1 - cvxpy.sum(cvxpy.sqrt(s)))
+    constraints = [cvxpy.sum(prevalences) == 1, prevalences >= 0]
 
-    Given a function f with a single local minumum in
-    the interval [a,b], gss returns a subset interval
-    [c,d] that contains the minimum with d-c <= tol.
-    """
-
-    a, b = 0., 1.
-    h = b - a
-    if h <= tol: return (a, b)
-
-    # required steps to achieve tolerance
-    n = int(math.ceil(math.log(tol / h) / math.log(invphi)))
-
-    c = a + invphi2 * h
-    d = a + invphi * h
-    yc = f(c)
-    yd = f(d)
-
-    for k in range(n - 1):
-        if yc < yd:
-            b = d
-            d = c
-            yd = yc
-            h = invphi * h
-            c = a + invphi2 * h
-            yc = f(c)
-        else:
-            a = c
-            c = d
-            yc = yd
-            h = invphi * h
-            d = a + invphi * h
-            yd = f(d)
-
-    if yc < yd:
-        return (a, d)
-    else:
-        return (c, b)
-
-
-def solve_hd(train_dist, test_dist, n_classes, solver="ECOS"):
-    p = cvxpy.Variable(n_classes)
-    s = cvxpy.mul_elemwise(test_dist, (train_dist.T * p))
-    objective = cvxpy.Minimize(1 - cvxpy.sum_entries(cvxpy.sqrt(s)))
-    contraints = [cvxpy.sum_entries(p) == 1, p >= 0]
-
-    prob = cvxpy.Problem(objective, contraints)
+    prob = cvxpy.Problem(objective, constraints)
     prob.solve(solver=solver)
-    return np.array(p.value).squeeze()
-
-def solve_mmy(train_dist, test_dist, n_classes):
-    c = np.hstack((np.ones(len(train_dist)),
-                   np.zeros(n_classes)))
-
-    A_ub = np.vstack((np.hstack((-np.eye(len(train_dist)), train_dist)),
-                     np.hstack((-np.eye(len(train_dist)), -train_dist))
-                      ))
-
-    b_ub = np.vstack((test_dist, -test_dist))
-
-    A_eq = np.hstack((np.zeros(len(train_dist)),
-                   np.ones(n_classes)))
-    A_eq = np.expand_dims(A_eq, axis=0)
-
-    b_eq = 1
-
-    x = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq)['x']
-
-    p = x[-n_classes:]
-
-    return p
-
-
-def phdy_f(probs, weights, k):
-
-    n = len(probs)
-    quantils = np.zeros(k)
-
-    idx_q = 0
-    cumsum = 0
-
-    for iw in range(n):
-        cumsum += weights[iw]
-        if cumsum >= n / k:
-            diff = cumsum - n / k
-            quantils[idx_q] += probs[iw] * (weights[iw] - diff)
-            cumsum = diff
-            idx_q += 1
-            if idx_q == k - 1:
-                quantils[idx_q] += probs[iw] * diff + np.sum(probs[iw+1:] * weights[iw+1:])
-                break
-            quantils[idx_q] += probs[iw] * diff
-        else:
-            quantils[idx_q] += probs[iw] * weights[iw]
-
-    quantils = quantils / (n / k)
-
-    return quantils
+    return np.array(prevalences.value).squeeze()
 
 
 def create_bags_with_multiple_prevalence(X, y, n=1001, rng=None):
-
-
     if isinstance(rng, (numbers.Integral, np.integer)):
         rng=np.random.RandomState(rng)
     if not isinstance(rng, np.random.RandomState):
@@ -258,8 +167,6 @@ def g_mean(clf, X, y):
     fpr = cm[0, 1] / float(cm[0, 1] + cm[0, 0])
     tpr = cm[1, 1] / float(cm[1, 1] + cm[1, 0])
     return np.sqrt((1 - fpr) * tpr)
-
-
 
 def normalize(X_train, X_test):
     scaler = StandardScaler()
