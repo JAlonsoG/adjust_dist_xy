@@ -22,14 +22,13 @@ warnings.simplefilter("ignore", DataConversionWarning)
 warnings.simplefilter("ignore", SettingWithCopyWarning)
 
 
-def indices_to_one_hot(data, n_classes):   #NUEVO
+def indices_to_one_hot(data, n_classes):
     """Convert an iterable of indices to one-hot encoded labels."""
     targets = np.array(data).reshape(-1)
     return np.eye(n_classes)[targets]
 
 
 def main():
-
     # configuration params
     num_reps = 40
     num_bags = 50
@@ -45,12 +44,10 @@ def main():
     datasets_dir = "./datasets"
     dataset_files = [file for file in glob.glob(os.path.join(datasets_dir, "*.csv"))]
 
-    dataset_files = ["./datasets/iris.3.csv"]
-
     dataset_names = [os.path.split(name)[-1][:-4] for name in dataset_files]
     print("There are a total of {} datasets.".format(len(dataset_names)))
 
-    filename_out = "results_nov19_" + str(num_reps) + "x" + str(num_bags)
+    filename_out = "results_" + str(num_reps) + "x" + str(num_bags)
 
     methods = ['AC', 'CC', 'CvMy', 'EDX', 'EDy', 'HDX', 'HDy']
     total_errors_df = []
@@ -134,11 +131,11 @@ def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
     for n_bag, (X_test_, y_test_, prev_true) in enumerate(
                create_bags_with_multiple_prevalence(X_test, y_test, num_bags, current_seed)):
 
-        pred_test_ = clf.predict_proba(X_test_)  #prediccion de clasificación  #NUEVO
+        pred_test_ = clf.predict_proba(X_test_)
         # Error
-        error_clf = zero_one_loss(np.array(y_test_), np.argmax(pred_test_,axis=1))  # --> GUARDAR
+        error_clf = zero_one_loss(np.array(y_test_), np.argmax(pred_test_,axis=1))
         # Brier loss
-        brier_clf = brier_score_loss(indices_to_one_hot(y_test_, 2)[:, 0], pred_test_[:, 0])  # --> GUARDAR
+        brier_clf = brier_score_loss(indices_to_one_hot(y_test_, 2)[:, 0], pred_test_[:, 0])
 
         prev_true = prev_true[1]
         prev_preds = [
