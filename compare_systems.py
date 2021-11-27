@@ -1,5 +1,5 @@
 import numpy as np
-from qbase import AC, CC, HDy , EDy, CvMy, HDX, EDX
+from qbase import AC, CC, HDy, EDy, HDX, EDX
 
 import os, glob
 import pandas as pd
@@ -22,13 +22,14 @@ warnings.simplefilter("ignore", DataConversionWarning)
 warnings.simplefilter("ignore", SettingWithCopyWarning)
 
 
-def indices_to_one_hot(data, n_classes):
+def indices_to_one_hot(data, n_classes):   #NUEVO
     """Convert an iterable of indices to one-hot encoded labels."""
     targets = np.array(data).reshape(-1)
     return np.eye(n_classes)[targets]
 
 
 def main():
+
     # configuration params
     num_reps = 40
     num_bags = 50
@@ -44,12 +45,14 @@ def main():
     datasets_dir = "./datasets"
     dataset_files = [file for file in glob.glob(os.path.join(datasets_dir, "*.csv"))]
 
+    #dataset_files = ["./datasets/iris.3.csv"]
+
     dataset_names = [os.path.split(name)[-1][:-4] for name in dataset_files]
     print("There are a total of {} datasets.".format(len(dataset_names)))
 
-    filename_out = "results_" + str(num_reps) + "x" + str(num_bags)
+    filename_out = "./results/results_UCI_" + str(num_reps) + "x" + str(num_bags)
 
-    methods = ['AC', 'CC', 'CvMy', 'EDX', 'EDy', 'HDX', 'HDy']
+    methods = ['AC', 'CC', 'EDX', 'EDy', 'HDX', 'HDy']
     total_errors_df = []
     for rep in range(num_reps):
         for dname, dfile in zip(dataset_names, dataset_files):
@@ -113,35 +116,31 @@ def train_on_a_dataset(methods, dname, dfile, filename_out,  estimator_grid,
     cc = CC(estimator=clf, sys_trained=ac)
     cc.fit(X_train, y_train, cv=folds)
 
-    cvmy = CvMy(estimator=clf, sys_trained=ac)
-    cvmy.fit(X_train, y_train, cv=folds)
-
     edy = EDy(estimator=clf, sys_trained=ac)
     edy.fit(X_train, y_train, cv=folds)
 
-    hdy = HDy(b=8, estimator=clf, sys_trained=ac)
+    hdy = HDy(b=8, bin_strategy='tasche', estimator=clf, sys_trained=ac)
     hdy.fit(X_train, y_train, cv=folds)
 
     edx = EDX()
     edx.fit(X_train, y_train)
 
-    hdx = HDX()
+    hdx = HDX(b=8, bin_strategy='tasche')
     hdx.fit(X_train, y_train)
 
     for n_bag, (X_test_, y_test_, prev_true) in enumerate(
                create_bags_with_multiple_prevalence(X_test, y_test, num_bags, current_seed)):
 
-        pred_test_ = clf.predict_proba(X_test_)
+        pred_test_ = clf.predict_proba(X_test_)  #prediccion de clasificación  #NUEVO
         # Error
-        error_clf = zero_one_loss(np.array(y_test_), np.argmax(pred_test_,axis=1))
+        error_clf = zero_one_loss(np.array(y_test_), np.argmax(pred_test_,axis=1))  # --> GUARDAR
         # Brier loss
-        brier_clf = brier_score_loss(indices_to_one_hot(y_test_, 2)[:, 0], pred_test_[:, 0])
+        brier_clf = brier_score_loss(indices_to_one_hot(y_test_, 2)[:, 0], pred_test_[:, 0])  # --> GUARDAR
 
         prev_true = prev_true[1]
         prev_preds = [
             ac.predict(X_test_)[1],
             cc.predict(X_test_)[1],
-            cvmy.predict(X_test_)[1],
             edx.predict(X_test_)[1],
             edy.predict(X_test_)[1],
             hdx.predict(X_test_)[1],

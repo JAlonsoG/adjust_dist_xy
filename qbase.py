@@ -1,6 +1,9 @@
 from abc import ABCMeta, abstractmethod
 import six
+import warnings
+import math
 import numpy as np
+from scipy.stats import norm
 import quadprog
 from scipy.stats import rankdata
 from sklearn.base import BaseEstimator
@@ -44,7 +47,7 @@ class BaseQ (six.with_metaclass(ABCMeta, BaseEstimator)):
             raise ValueError("Invalid value for cv param")
         return self
 
-class CC(BaseQ):
+class CC(BaseQ):  #Nuevo 1/11/2019
     def __init__(self, estimator , sys_trained = None):
         super(CC, self).__init__(estimator)
 
@@ -114,7 +117,7 @@ class AC(BaseQ):
 
 class HDy(BaseQ):
 
-    def __init__(self, estimator, sys_trained = None, b=8):
+    def __init__(self, estimator, sys_trained=None, b=8, bin_strategy='equal'):
         super(HDy, self).__init__(estimator)
 
         if sys_trained!=None:
@@ -126,6 +129,7 @@ class HDy(BaseQ):
                 raise  TypeError("Invalid type for sys_trained param")
 
         self.b = b
+        self.bin_strategy = bin_strategy
 
 
     def fit(self, X, y, cv=5):
@@ -135,17 +139,29 @@ class HDy(BaseQ):
         super().fit(X, y, cv)
 
         n_classes = len(self.classes_)
-        n_clfs = n_classes  # OvA
 
         preds = self.predictions_train_
         pos_preds = preds[y == 1]
         neg_preds = preds[y == 0]
 
         self.train_dist_ = np.zeros((self.b, n_classes))
-        self.train_dist_[:, 0], _ = np.histogram(neg_preds, bins=self.b, range=(0., 1.))
-        self.train_dist_[:, 1], _ = np.histogram(pos_preds, bins=self.b, range=(0., 1.))
+
+        if self.bin_strategy == 'equal':
+            self.bincuts = np.histogram_bin_edges(preds, bins=self.b, range=(0., 1.))
+        elif self.bin_strategy == 'tasche':
+            # only for binary quantification
+            mu = (np.mean(neg_preds) + np.mean(pos_preds)) / 2
+            std = (np.std(neg_preds) + np.std(pos_preds)) / 2
+            if std > 0:
+                self.bincuts = [std * norm.ppf(i/self.b) + mu for i in range(0, self.b+1)]
+            else:
+                self.bincuts = np.histogram_bin_edges(preds, bins=self.b, range=[0., 1.])
+
+        self.train_dist_[:, 0], _ = np.histogram(neg_preds, bins=self.bincuts)
+        self.train_dist_[:, 1], _ = np.histogram(pos_preds, bins=self.bincuts)
         self.train_dist_[:, 0] = self.train_dist_[:, 0] / float(np.sum(y == 0))
         self.train_dist_[:, 1] = self.train_dist_[:, 1] / float(np.sum(y == 1))
+
 
 
 
@@ -155,10 +171,16 @@ class HDy(BaseQ):
 
         n_classes = len(self.classes_)
         preds = self.estimator_.predict_proba(X)[:, 1]
-
+        
+        # NEW
         test_dist = np.zeros((self.b, 1))
-        test_dist[:, 0], _ = np.histogram(preds, self.b, range=(0, 1))
+        test_dist[:, 0], _ = np.histogram(preds, bins=self.bincuts)
         test_dist = test_dist / float(X.shape[0])
+        
+        # OLD
+        # pdf, _ = np.histogram(preds, self.b, range=(0, 1))
+        # test_dist = pdf / float(X.shape[0])
+        # test_dist = np.expand_dims(test_dist, -1)
         
         return solve_hd(self.train_dist_, test_dist, n_classes)
 
@@ -385,21 +407,51 @@ class EDX(six.with_metaclass(ABCMeta, BaseEstimator)):
 
 class HDX(six.with_metaclass(ABCMeta, BaseEstimator)):
 
-    def __init__(self, b=8):
+    def __init__(self, b=8, bin_strategy='equal'):
         self.b = b
+        self.bin_strategy = bin_strategy
 
     def fit(self, X, y):
+        # warnings.simplefilter('error')
+        # try:
         self.classes_ = np.unique(y)
+        n_classes = len(self.classes_)
+        # NEW
+        if self.bin_strategy == 'equal':
+            att_ranges = [(a.min(), a.max()) for a in X.T]
+            self.bincuts = np.zeros((X.shape[1], self.b + 1))
+            # self.bincuts[:, 0] = -np.inf
+            # self.bincuts[:, -1] = np.inf
+            for att in range(X.shape[1]):
+                # self.bincuts[att, 1:-1] = np.histogram_bin_edges(X[:, att], bins=self.b, range=att_ranges[att])[1:-1]
+                self.bincuts[att, :] = np.histogram_bin_edges(X[:, att], bins=self.b, range=att_ranges[att])
+        elif self.bin_strategy == 'tasche':
+            # only for binary quantification
+            self.bincuts = np.zeros((X.shape[1], self.b+1))
+            for att in range(X.shape[1]):
+                mu = 0
+                std = 0
+                for n_cls, cls in enumerate(self.classes_):
+                    mu = mu + np.mean(X[y == cls, att])
+                    std = std + np.std(X[y == cls, att])
+                mu = mu / n_classes
+                std = std / n_classes
+                if std > 0:
+                    self.bincuts[att, :] = [std * norm.ppf(i/self.b) + mu for i in range(0, self.b+1)]
+                else:
+                    self.bincuts[att, :] = np.histogram_bin_edges(X[:, att], bins=self.b, range=[0, 0])
 
-        self.att_ranges = [(a.min(), a.max()) for a in X.T]
-        self.train_dist_ = np.zeros((self.b * X.shape[1], 2))
+
+        self.train_dist_ = np.zeros((self.b * X.shape[1], n_classes))
         for n_cls, cls in enumerate(self.classes_):
             # compute pdf
             for att in range(X.shape[1]):
                 self.train_dist_[att * self.b:(att + 1) * self.b, n_cls] = \
-                    np.histogram(X[y == cls, att], bins=self.b, range=self.att_ranges[att])[0]
+                    np.histogram(X[y == cls, att], bins=self.bincuts[att, :])[0]
+
             self.train_dist_[:, n_cls] = self.train_dist_[:, n_cls] / np.sum(y == cls)
-                
+        # except:
+        #    print(self.bincuts)
 
     def predict(self, X, method='cc'):
         if not self.b:
@@ -407,11 +459,12 @@ class HDX(six.with_metaclass(ABCMeta, BaseEstimator)):
 
         n_classes = len(self.classes_)
 
+        # NEW
         test_dist = np.zeros((self.b * X.shape[1], 1))
         # compute pdf
         for att in range(X.shape[1]):
-            test_dist[att * self.b:(att + 1) * self.b, 0] = \
-                np.histogram(X[:, att], bins=self.b, range=self.att_ranges[att])[0]
+            test_dist[att * self.b:(att + 1) * self.b, 0] = np.histogram(X[:, att], bins=self.bincuts[att, :])[0]
+
         test_dist = test_dist / len(X)
 
         return solve_hd(self.train_dist_, test_dist, n_classes, solver="ECOS")

@@ -112,7 +112,7 @@ def run_experiment(est_name, seed, dim, param, ntrain, ntest, nreps, nbags, nfol
         plt.xlabel('$x_1$')
         plt.ylabel('$x_2$')
         plt.legend(loc='best')
-        plt.savefig('./artificial-2D-' + param + '.png', dpi=300)
+        plt.savefig('./results/artificial-2D-' + param + '.png', dpi=300)
 
     for k in range(len(ntrain)):
 
@@ -154,10 +154,10 @@ def run_experiment(est_name, seed, dim, param, ntrain, ntest, nreps, nbags, nfol
             edy = EDy(estimator=estimator, sys_trained=ac)
             edy.fit(x_train, y_train, cv=nfolds)
 
-            hdx = HDX()
+            hdx = HDX(b=8, bin_strategy='tasche')
             hdx.fit(x_train, y_train)
 
-            hdy = HDy(b=8, estimator=estimator, sys_trained=ac)
+            hdy = HDy(b=8, bin_strategy='tasche', estimator=estimator, sys_trained=ac)
             hdy.fit(x_train, y_train, cv=nfolds)
 
             for n_bag in range(nbags):
@@ -207,7 +207,7 @@ def run_experiment(est_name, seed, dim, param, ntrain, ntest, nreps, nbags, nfol
                                                 all_quant_results[nmethod, rep * nbags + n_bag]
 
         if save_all:
-            name_file = 'results-all-artificial-' + str(dim) + 'D-' + str(param) + '-' + est_name + \
+            name_file = './results/artificial-all' + str(dim) + 'D-' + str(param) + '-' + est_name + \
                         '-rep' + str(nreps) + '-value' + str(ntrain[k]) + '-ntest' + str(ntest) + '.txt'
             file_all = open(name_file, 'w')
 
@@ -227,7 +227,7 @@ def run_experiment(est_name, seed, dim, param, ntrain, ntest, nreps, nbags, nfol
     quant_results = quant_results / (nreps * nbags)
     classif_results = classif_results / (nreps * nbags)
 
-    name_file = 'results-avg-artificial-' + str(dim) + 'D-' + str(param) + '-' + est_name + '-rep' + str(nreps) + \
+    name_file = './results/artificial-avg' + str(dim) + 'D-' + str(param) + '-' + est_name + '-rep' + str(nreps) + \
                 '-ntest' + str(ntest) + '.txt'
     file_avg = open(name_file, 'w')
     file_avg.write('#examples, Error, ')
@@ -248,9 +248,6 @@ def run_experiment(est_name, seed, dim, param, ntrain, ntest, nreps, nbags, nfol
 
 # MAIN
 # 1D
-# run_experiment(est_name='LR', seed=42, dim=1, param=0.5, ntrain=[50, 100], ntest=200,
-#                nreps=40, nbags=50, nfolds=50, save_all=False)
-
 run_experiment(est_name='LR', seed=42, dim=1, param=0.5, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=200,
                nreps=40, nbags=50, nfolds=50, save_all=False)
 run_experiment(est_name='LR', seed=42, dim=1, param=0.75, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=200,
@@ -258,17 +255,18 @@ run_experiment(est_name='LR', seed=42, dim=1, param=0.75, ntrain=[50, 100, 200, 
 run_experiment(est_name='LR', seed=42, dim=1, param=1.0, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=200,
                nreps=40, nbags=50, nfolds=50, save_all=False)
 
-# run_experiment(est_name='LR', seed=42, dim=1, param=0.5, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
-#                nreps=40, nbags=50, nfolds=50, save_all=False)
-# run_experiment(est_name='LR', seed=42, dim=1, param=0.75, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
-#                nreps=40, nbags=50, nfolds=50, save_all=False)
-# run_experiment(est_name='LR', seed=42, dim=1, param=1.0, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
-#                nreps=40, nbags=50, nfolds=50, save_all=False)
+run_experiment(est_name='LR', seed=42, dim=1, param=0.5, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+               nreps=40, nbags=50, nfolds=50, save_all=False)
+run_experiment(est_name='LR', seed=42, dim=1, param=0.75, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+               nreps=40, nbags=50, nfolds=50, save_all=False)
+run_experiment(est_name='LR', seed=42, dim=1, param=1.0, ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+               nreps=40, nbags=50, nfolds=50, save_all=False)
 
 # 2D
-run_experiment(est_name='LR', seed=42, dim=2, param='', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=200,
-               nreps=40, nbags=50, nfolds=50, save_all=False)
-run_experiment(est_name='SVM-RBF', seed=42, dim=2, param='', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=200,
-               nreps=40, nbags=50, nfolds=50, save_all=False)
-# run_experiment(est_name='SVM-RBF', seed=42, dim=2, param='HDX', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
-#               nreps=40, nbags=50, nfolds=50, save_all=False)
+run_experiment(est_name='LR', seed=42, dim=2, param='', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+              nreps=40, nbags=50, nfolds=50, save_all=False)
+run_experiment(est_name='SVM-RBF', seed=42, dim=2, param='', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+              nreps=40, nbags=50, nfolds=50, save_all=False)
+
+run_experiment(est_name='SVM-RBF', seed=42, dim=2, param='HDX', ntrain=[50, 100, 200, 500, 1000, 2000], ntest=2000,
+              nreps=40, nbags=50, nfolds=50, save_all=False)
